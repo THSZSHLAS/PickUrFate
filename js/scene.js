@@ -19,11 +19,10 @@ export class SceneManager {
         this.ringGroup = new THREE.Group();
         this.scene.add(this.ringGroup);
 
-        this.rotationSpeed = 0.0002; // 再慢一点点，更稳重
+        this.rotationSpeed = 0.0002; // 极慢的基础自转
         this.currentRotation = 0;
         this.floatingCard = null;
         
-        // --- 修改点 1: 辅助对象，用于计算旋转目标 ---
         this.dummy = new THREE.Object3D(); 
         
         this.initPostProcessing();
@@ -197,40 +196,39 @@ export class SceneManager {
     }
 
     update(dt, hoveredCard) {
-        // 圆环旋转
+        // --- 核心修复：极度稳定的 Hover 逻辑 ---
         if (hoveredCard && !this.floatingCard) {
             const targetAngle = -hoveredCard.userData.angle;
             let delta = targetAngle - this.currentRotation;
             while (delta <= -Math.PI) delta += Math.PI*2;
             while (delta > Math.PI) delta -= Math.PI*2;
-            this.currentRotation += delta * 0.015;
+            
+            // 只有当偏差较大时，才慢慢移动 (0.002)
+            // 如果偏差很小 (< 0.05 弧度)，直接认为“对齐了”，停止转动
+            // 这样你放上去的时候，圆环几乎是不动的，非常稳
+            if (Math.abs(delta) > 0.05) {
+                this.currentRotation += delta * 0.002;
+            }
         } else {
+            // 没有 hover 时，恢复极慢自转
             this.currentRotation += this.rotationSpeed;
         }
         
         this.currentRotation = this.currentRotation % (Math.PI * 2);
         this.ringGroup.rotation.y = this.currentRotation;
 
-        // --- 修改点 2: 悬浮卡片 缓慢旋转 ---
+        // 悬浮卡片动画
         if (this.floatingCard) {
-            // 1. 位置插值 (移动)
             const targetPos = new THREE.Vector3(0, 0, -3.5); 
             targetPos.applyQuaternion(this.camera.quaternion);
             targetPos.add(this.camera.position);
             
-            // 移动速度系数 0.05
             this.floatingCard.position.lerp(targetPos, 0.05);
 
-            // 2. 旋转插值 (代替 lookAt)
-            // 将 dummy 移到卡片位置，并让它看着相机
             this.dummy.position.copy(this.floatingCard.position);
             this.dummy.lookAt(this.camera.position);
-            
-            // 让卡片 慢慢地 (0.02 系数) 转到 dummy 的角度
-            // 这里的 0.02 决定了自旋转速度，非常慢且平滑
             this.floatingCard.quaternion.slerp(this.dummy.quaternion, 0.02);
 
-            // 3. 呼吸效果
             this.floatingCard.position.y += Math.sin(Date.now() * 0.002) * 0.001;
             this.floatingCard.scale.lerp(new THREE.Vector3(1.5, 1.5, 1.5), 0.05);
         }
@@ -240,7 +238,8 @@ export class SceneManager {
             if (c === this.floatingCard) return;
 
             const isHovered = (c === hoveredCard);
-            const targetScale = isHovered ? 1.15 : 1.0;
+            // 悬浮时缩放不要太大，避免视觉干扰
+            const targetScale = isHovered ? 1.1 : 1.0; 
             c.scale.lerp(new THREE.Vector3(targetScale, targetScale, 1), 0.1);
             c.material.opacity = isHovered ? 1.0 : 0.6;
         });
