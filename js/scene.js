@@ -7,7 +7,6 @@ export class SceneManager {
     constructor() {
         this.container = document.getElementById('canvas-container');
         this.scene = new THREE.Scene();
-        // 调整相机视场角(FOV)为50，减少边缘拉伸，视觉更平正
         this.camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
         this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         this.renderer.setSize(window.innerWidth, window.innerHeight);
@@ -20,14 +19,16 @@ export class SceneManager {
         this.ringGroup = new THREE.Group();
         this.scene.add(this.ringGroup);
 
-        this.rotationSpeed = 0.0004; // 基础极慢自转
+        this.rotationSpeed = 0.0002; // 再慢一点点，更稳重
         this.currentRotation = 0;
-        this.floatingCard = null; 
+        this.floatingCard = null;
+        
+        // --- 修改点 1: 辅助对象，用于计算旋转目标 ---
+        this.dummy = new THREE.Object3D(); 
         
         this.initPostProcessing();
         this.initBackground();
         
-        // 相机位置稍微拉远一点，因为圆环变大了
         this.camera.position.z = 0; 
         
         window.addEventListener('resize', () => this.onResize());
@@ -56,8 +57,6 @@ export class SceneManager {
     }
 
     createRing(hexagramData) {
-        // --- 修改点 1: 增大半径以产生间隔 ---
-        // 原来是 10，现在改为 14。周长变大，卡片宽度不变，自然就有缝隙了。
         const radius = 14; 
         const cardGeo = new THREE.PlaneGeometry(1, 1.5);
 
@@ -87,11 +86,9 @@ export class SceneManager {
         canvas.height = 384;
         const ctx = canvas.getContext('2d');
 
-        // 纸张背景
         ctx.fillStyle = '#f4f1ea';
         ctx.fillRect(0, 0, 256, 384);
 
-        // 淡淡的云纹水印
         ctx.globalAlpha = 0.05;
         ctx.strokeStyle = '#2c2c2c';
         ctx.beginPath();
@@ -99,12 +96,10 @@ export class SceneManager {
         ctx.stroke();
         ctx.globalAlpha = 1.0;
 
-        // 金边
         ctx.strokeStyle = '#d4af37';
         ctx.lineWidth = 6;
         ctx.strokeRect(10, 10, 236, 364);
 
-        // 卦象线条
         const lineW = 120;
         const lineH = 12;
         const startY = 280;
@@ -121,7 +116,6 @@ export class SceneManager {
             }
         });
 
-        // 文字
         ctx.fillStyle = '#1a1a1a';
         ctx.font = '16px serif';
         ctx.textAlign = 'center';
@@ -203,18 +197,13 @@ export class SceneManager {
     }
 
     update(dt, hoveredCard) {
-        // --- 旋转逻辑优化 ---
+        // 圆环旋转
         if (hoveredCard && !this.floatingCard) {
             const targetAngle = -hoveredCard.userData.angle;
             let delta = targetAngle - this.currentRotation;
             while (delta <= -Math.PI) delta += Math.PI*2;
             while (delta > Math.PI) delta -= Math.PI*2;
-            
-            // --- 修改点 2: 悬浮时的对齐速度 ---
-            // 之前是 0.05，现在改为 0.015
-            // 这里的数字越小，圆环对齐选定卡片时的转动就越慢、越平滑
             this.currentRotation += delta * 0.015;
-            
         } else {
             this.currentRotation += this.rotationSpeed;
         }
@@ -222,14 +211,26 @@ export class SceneManager {
         this.currentRotation = this.currentRotation % (Math.PI * 2);
         this.ringGroup.rotation.y = this.currentRotation;
 
-        // 悬浮动画
+        // --- 修改点 2: 悬浮卡片 缓慢旋转 ---
         if (this.floatingCard) {
+            // 1. 位置插值 (移动)
             const targetPos = new THREE.Vector3(0, 0, -3.5); 
             targetPos.applyQuaternion(this.camera.quaternion);
             targetPos.add(this.camera.position);
-
+            
+            // 移动速度系数 0.05
             this.floatingCard.position.lerp(targetPos, 0.05);
-            this.floatingCard.lookAt(this.camera.position);
+
+            // 2. 旋转插值 (代替 lookAt)
+            // 将 dummy 移到卡片位置，并让它看着相机
+            this.dummy.position.copy(this.floatingCard.position);
+            this.dummy.lookAt(this.camera.position);
+            
+            // 让卡片 慢慢地 (0.02 系数) 转到 dummy 的角度
+            // 这里的 0.02 决定了自旋转速度，非常慢且平滑
+            this.floatingCard.quaternion.slerp(this.dummy.quaternion, 0.02);
+
+            // 3. 呼吸效果
             this.floatingCard.position.y += Math.sin(Date.now() * 0.002) * 0.001;
             this.floatingCard.scale.lerp(new THREE.Vector3(1.5, 1.5, 1.5), 0.05);
         }
