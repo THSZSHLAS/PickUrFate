@@ -110,7 +110,7 @@ function halfExtents(field, body) {
 export function pickCard(field, x, y, pad = 4) {
   let best = null;
   for (const body of field.bodies) {
-    if (body.opacity < 0.5) continue;
+    if (body.opacity < 0.5 || body.cast || body.gone) continue;
     const [hw, hh] = halfExtents(field, body);
     const dx = x - body.x;
     const dy = y - body.y;
@@ -128,6 +128,7 @@ export function nearestCard(field, x, y, radius) {
   let best = null;
   let bestDistance = radius;
   for (const body of field.bodies) {
+    if (body.cast || body.gone) continue;
     const distance = Math.hypot(body.x - x, body.y - y);
     if (distance < bestDistance) { best = body; bestDistance = distance; }
   }
@@ -181,6 +182,32 @@ export function gust(field, strength = 1) {
   }
 }
 
+/** Fly a card into an altar slot (six-line casting). It shrinks, turns flat and disappears. */
+export function startCast(field, body, tx, ty) {
+  if (field.grab?.id === body.id) field.grab = null;
+  const flat = Math.round((body.a - Math.PI / 2) / Math.PI) * Math.PI + Math.PI / 2;
+  body.cast = { t: 0, dur: 0.62, x0: body.x, y0: body.y, a0: body.a, z0: body.z, a1: flat, tx, ty };
+}
+
+function stepCast(body, dt) {
+  const c = body.cast;
+  c.t = Math.min(1, c.t + dt / c.dur);
+  const e = easeInOut(c.t);
+  const arc = Math.sin(c.t * Math.PI) * -70;
+  body.x = c.x0 + (c.tx - c.x0) * e;
+  body.y = c.y0 + (c.ty - c.y0) * e + arc * (1 - c.t);
+  body.a = c.a0 + (c.a1 - c.a0) * e;
+  body.z = c.z0 + (1.2 - c.z0) * Math.sin(c.t * Math.PI) * 0.8 + (-0.55 - c.z0) * e * e;
+  body.tiltX = damp(body.tiltX, 0, 12, dt);
+  body.tiltY = damp(body.tiltY, 0, 12, dt);
+  body.lift = damp(body.lift, 1, 12, dt);
+  body.opacity = c.t < 0.72 ? 1 : 1 - (c.t - 0.72) / 0.28;
+  body.vx = 0;
+  body.vy = 0;
+  body.w = 0;
+  if (c.t >= 1) { body.cast = null; body.gone = true; body.opacity = 0; }
+}
+
 export function startGather(field, chosenId) {
   field.mode = "gather";
   field.chosenId = chosenId;
@@ -209,6 +236,7 @@ function stepGather(field, dt) {
   const cx = field.width / 2;
   const cy = field.height / 2;
   for (const body of field.bodies) {
+    if (body.gone) continue;
     const g = body.g0;
     const t = clamp((field.gatherTime - g.delay) / g.dur, 0, 1);
     if (body.id === field.chosenId) {
@@ -282,6 +310,12 @@ function stepBody(field, body, dt, held) {
     wx += Math.sin(body.y * 0.006 + time * 0.7 + body.phase) * 46 * energy;
     wy += Math.cos(body.x * 0.005 - time * 0.6 + body.phase) * 38 * energy;
 
+    // Phone tilt: the whole storm slides "downhill" like snow in a globe.
+    if (field.gravity) {
+      ax += field.gravity.x * 460 * parallax;
+      ay += field.gravity.y * 460 * parallax;
+    }
+
     const relx = wx - body.vx;
     const rely = wy - body.vy;
     const drag = 1.25 + 0.45 * (1 - body.z); // small, far cards are caught by the air sooner
@@ -334,7 +368,7 @@ function separate(field, dt) {
     const a = bodies[i];
     for (let j = i + 1; j < bodies.length; j += 1) {
       const b = bodies[j];
-      if (Math.abs(a.z - b.z) > 0.2) continue;
+      if (Math.abs(a.z - b.z) > 0.2 || a.cast || b.cast || a.gone || b.gone) continue;
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const minDistance = cardW * (depthScale(a.z) + depthScale(b.z)) * 0.42;
@@ -362,12 +396,15 @@ export function stepField(field, frameDt) {
   const h = dt / steps;
   for (let step = 0; step < steps; step += 1) {
     for (const body of field.bodies) {
+      if (body.cast || body.gone) continue;
       stepBody(field, body, h, field.grab?.id === body.id ? field.grab : null);
     }
   }
   separate(field, dt);
 
   for (const body of field.bodies) {
+    if (body.gone) continue;
+    if (body.cast) { stepCast(body, dt); continue; }
     const held = field.grab?.id === body.id;
     const hovered = !held && field.hoverId === body.id;
     const zTarget = held ? 1.32 : body.baseZ + (hovered ? 0.1 : 0) + Math.sin(field.time * 0.25 + body.phase) * 0.06;

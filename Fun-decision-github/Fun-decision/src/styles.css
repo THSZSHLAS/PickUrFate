@@ -591,26 +591,64 @@ button { color: inherit; }
 /* ───────────────────────── result: the card turns over ───────────────────────── */
 
 .result-stage {
-  position: relative;
+  position: fixed;
   z-index: 10;
-  display: grid;
-  align-content: center;
-  width: min(100% - 40px, 990px);
-  min-height: 100svh;
+  inset: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  /* Content fades out under the fixed header instead of sliding over the title. */
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, transparent 92px, #000 150px);
+  mask-image: linear-gradient(180deg, transparent 0, transparent 92px, #000 150px);
+}
+.result-inner {
+  width: min(100% - 40px, 1040px);
   margin: 0 auto;
-  padding: 104px 0 56px;
+  padding: 146px 0 72px;
 }
 .result-heading { text-align: center; animation: fade-down 800ms 650ms ease both; }
 .result-heading p { margin: 0 0 6px; font-size: 12px; letter-spacing: 0.22em; color: rgba(225, 191, 113, 0.76); }
 .result-heading h1 { margin: 0; font-family: "Ma Shan Zheng", cursive; font-size: clamp(36px, 4.2vw, 60px); font-weight: 400; color: #f6e2aa; }
-.reading-grid { display: grid; grid-template-columns: 262px 1fr; align-items: center; gap: clamp(28px, 5vw, 72px); margin-top: 26px; }
+.result-heading h1 small { margin: 0 0.2em; font-size: 0.55em; color: rgba(230, 150, 128, 0.9); }
+.result-question { margin: 10px auto 0; max-width: 34em; font-family: "Ma Shan Zheng", cursive; font-size: clamp(18px, 1.8vw, 24px); color: rgba(246, 226, 170, 0.78); }
+.reading-grid { display: grid; grid-template-columns: 262px 1fr; align-items: start; gap: clamp(28px, 5vw, 72px); margin-top: 30px; }
+.reading-cards { display: grid; gap: 22px; justify-items: center; }
+.relating-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  border: 1px solid rgba(217, 179, 101, 0.3);
+  padding: 14px 16px;
+  background: rgba(7, 25, 38, 0.86);
+  animation: fade-up 700ms 1500ms ease both;
+}
+.relating-card__arrow {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(184, 76, 61, 0.7);
+  font-family: "Ma Shan Zheng", cursive;
+  color: #e39a86;
+}
+.relating-card > div { display: grid; flex: 1; gap: 4px; justify-items: start; }
+.relating-card p { margin: 0; font-size: 11px; letter-spacing: 0.16em; color: rgba(225, 191, 113, 0.75); }
+.relating-card strong { font-family: "Ma Shan Zheng", cursive; font-size: 30px; font-weight: 400; line-height: 1; color: #f5e2ab; }
+.relating-card em { font-size: 11px; font-style: normal; color: rgba(239, 225, 191, 0.55); }
+.relating-card .hex-lines { width: 72px; gap: 4px; margin: 4px 0 2px; }
+.relating-card .hex-lines i { height: 4px; background: rgba(240, 220, 170, 0.85); }
+.relating-card .hex-lines i.is-yin { background: linear-gradient(90deg, rgba(240, 220, 170, 0.85) 0 41%, transparent 41% 59%, rgba(240, 220, 170, 0.85) 59% 100%); }
 
 .reading-card { position: relative; width: 100%; aspect-ratio: 11 / 21; perspective: 1500px; color: #22323a; }
 .reading-card__tilt {
   position: absolute;
   inset: 0;
   z-index: 1;
-  transform-style: preserve-3d;
+  /* flat, not preserve-3d: a 3D context here escapes the result page's scroll mask in Chrome */
+  transform-style: flat;
   transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg));
   transition: transform 260ms cubic-bezier(0.2, 0.8, 0.3, 1);
 }
@@ -648,14 +686,28 @@ button { color: inherit; }
 
 .hex-lines { display: grid; gap: 9px; width: 56%; margin-top: 16px; }
 .hex-lines i {
+  position: relative;
   display: block;
   height: 9px;
   border-radius: 1.5px;
   background: #1c2a30;
   box-shadow: 0 0 0.5px rgba(28, 42, 48, 0.8);
   transform-origin: left center;
+}
+.hex-lines.is-animated i {
   animation: line-ink 460ms cubic-bezier(0.3, 0.7, 0.2, 1) both;
   animation-delay: calc(1150ms + (5 - var(--line)) * 95ms);
+}
+.hex-lines i.is-moving::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  right: -16px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #b8473a;
+  transform: translateY(-50%);
 }
 .hex-lines i.is-yin { background: linear-gradient(90deg, #1c2a30 0 41%, transparent 41% 59%, #1c2a30 59% 100%); box-shadow: none; }
 
@@ -673,7 +725,195 @@ button { color: inherit; }
 .reading-copy > p:not(.reading-copy__category), .reading-copy blockquote { margin: 11px 0; font-size: 14px; line-height: 1.85; color: rgba(239, 225, 191, 0.76); }
 .reading-copy blockquote { border-left: 2px solid var(--cinnabar); padding: 10px 15px; background: rgba(124, 51, 43, 0.12); }
 .reading-copy .change-note { color: rgba(232, 198, 126, 0.76); }
-.result-actions { display: flex; justify-content: center; gap: 12px; margin-top: 26px; animation: fade-up 700ms 1350ms ease both; }
+.reading-copy__sub { margin: 20px 0 4px; font-family: "Ma Shan Zheng", cursive; font-size: 20px; font-weight: 400; letter-spacing: 0.08em; color: #eed59a; }
+.classic { display: grid; gap: 10px; margin: 6px 0 14px; border-top: 1px solid rgba(217, 179, 101, 0.18); border-bottom: 1px solid rgba(217, 179, 101, 0.18); padding: 14px 0; }
+.classic div { display: grid; grid-template-columns: 44px 1fr; align-items: baseline; gap: 10px; }
+.classic span { font-size: 11px; letter-spacing: 0.2em; color: #d98f7d; }
+.classic p { margin: 0; font-family: "Ma Shan Zheng", cursive; font-size: 19px; line-height: 1.6; letter-spacing: 0.04em; color: #f1dca4; }
+.result-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin-top: 30px; animation: fade-up 700ms 1350ms ease both; }
+.result-actions .is-primary { border-color: rgba(236, 196, 100, 0.9); background: rgba(92, 66, 28, 0.92); color: #fff0bd; }
+.result-actions button:disabled { opacity: 0.6; cursor: progress; }
+
+/* ───────── AI deep reading ───────── */
+.ai-reading {
+  position: relative;
+  margin-top: 28px;
+  border: 1px solid rgba(217, 179, 101, 0.3);
+  padding: 22px 28px 24px;
+  background: rgba(6, 20, 31, 0.9);
+  animation: fade-up 800ms 1250ms ease both;
+}
+.ai-reading header { display: flex; align-items: center; gap: 14px; }
+.ai-reading header h3 { margin: 0; font-family: "Ma Shan Zheng", cursive; font-size: 24px; font-weight: 400; color: #f5e2ab; }
+.ai-reading header p { margin: 2px 0 0; font-size: 11px; letter-spacing: 0.08em; color: rgba(239, 225, 191, 0.55); }
+.ai-reading__seal { display: grid; flex: none; place-items: center; width: 38px; height: 38px; border: 1px solid rgba(233, 196, 110, 0.6); font-family: "Ma Shan Zheng", cursive; color: #f1cf7f; }
+.ai-reading__gear { margin-left: auto; border: 0; border-bottom: 1px solid rgba(225, 191, 111, 0.35); padding: 4px 2px; background: none; font-size: 12px; color: rgba(239, 224, 185, 0.65); cursor: pointer; }
+.ai-reading__connect {
+  display: block;
+  width: 100%;
+  margin-top: 16px;
+  border: 1px dashed rgba(233, 196, 110, 0.55);
+  border-radius: 10px;
+  padding: 16px;
+  background: rgba(92, 66, 28, 0.2);
+  font-family: "Ma Shan Zheng", cursive;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+  color: #f4dda0;
+  cursor: pointer;
+  transition: background-color 200ms ease, transform 220ms cubic-bezier(0.3, 1.5, 0.5, 1);
+}
+.ai-reading__connect:hover { background: rgba(92, 66, 28, 0.4); transform: translateY(-1px); }
+.ai-reading__muted { display: flex; align-items: center; gap: 10px; margin: 16px 0 0; font-size: 13px; color: rgba(239, 225, 191, 0.6); }
+.ai-reading__error { margin: 14px 0 0; font-size: 13px; line-height: 1.7; color: #eba08f; }
+.ai-reading__again { margin-top: 14px; border: 1px solid rgba(216, 179, 106, 0.45); border-radius: 999px; padding: 7px 16px; background: transparent; font-size: 12px; color: rgba(244, 225, 178, 0.8); cursor: pointer; }
+.ai-reading__body { margin-top: 12px; font-size: 14.5px; line-height: 1.9; color: rgba(239, 225, 191, 0.84); }
+.ai-reading__body h4 { margin: 18px 0 6px; font-family: "Ma Shan Zheng", cursive; font-size: 20px; font-weight: 400; letter-spacing: 0.06em; color: #eed59a; }
+.ai-reading__body p { margin: 6px 0; }
+.ai-reading__body ol, .ai-reading__body ul { margin: 6px 0; padding-left: 1.4em; }
+.ai-reading__body li { margin: 4px 0; }
+.ai-reading__body strong { color: #f6e2aa; font-weight: 600; }
+.ai-reading__body em { font-style: normal; color: #f1d68f; }
+.ai-reading__body.is-streaming > :last-child::after { content: ""; display: inline-block; width: 0.5em; height: 1em; margin-left: 2px; vertical-align: -0.12em; background: #e6bd62; animation: caret 900ms steps(1) infinite; }
+.ink-dots { display: inline-block; width: 22px; height: 6px; background: radial-gradient(circle, #e6bd62 2.5px, transparent 3px) 0 50% / 8px 6px repeat-x; animation: ink-dots 900ms linear infinite; }
+
+/* ───────── modals ───────── */
+.modal {
+  position: fixed;
+  z-index: 400;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(2, 8, 14, 0.72);
+  animation: deck-in 200ms ease both;
+}
+.modal__panel {
+  width: min(100%, 440px);
+  max-height: calc(100svh - 40px);
+  overflow-y: auto;
+  border: 1px solid rgba(217, 179, 101, 0.4);
+  padding: 24px;
+  background: #0a1c29;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  animation: modal-rise 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+.modal__panel h3 { margin: 0 0 6px; font-family: "Ma Shan Zheng", cursive; font-size: 26px; font-weight: 400; color: #f5e2ab; }
+.modal__hint { margin: 6px 0 14px; font-size: 12px; line-height: 1.7; color: rgba(239, 225, 191, 0.6); text-align: center; }
+.ai-settings .modal__hint { text-align: left; }
+.ai-settings label { display: grid; gap: 6px; margin-top: 12px; font-size: 12px; letter-spacing: 0.08em; color: rgba(239, 225, 191, 0.7); }
+.ai-settings input:not([type="checkbox"]) { border: 1px solid rgba(217, 179, 101, 0.35); border-radius: 6px; padding: 10px 12px; background: rgba(3, 12, 20, 0.8); font-size: 14px; color: #f4e5bd; outline: none; }
+.ai-settings input:focus { border-color: rgba(236, 196, 100, 0.85); }
+.ai-settings__check { grid-template-columns: auto 1fr !important; align-items: center; }
+.modal__actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.modal__actions button, .modal__actions a {
+  border: 1px solid rgba(216, 179, 106, 0.5);
+  border-radius: 999px;
+  padding: 9px 18px;
+  background: rgba(7, 25, 38, 0.9);
+  font-size: 14px;
+  color: rgba(244, 225, 178, 0.85);
+  text-decoration: none;
+  cursor: pointer;
+}
+.modal__actions .is-primary { border-color: rgba(236, 196, 100, 0.9); background: rgba(92, 66, 28, 0.95); color: #fff0bd; }
+.poster-modal { width: min(100%, 420px); padding: 16px; }
+.poster-modal img { display: block; width: 100%; height: auto; max-height: calc(100svh - 190px); object-fit: contain; }
+.poster-modal .modal__actions { justify-content: center; }
+
+/* ───────── topic screen: mode + question ───────── */
+.ask-panel { display: grid; gap: 12px; justify-items: center; width: min(100%, 560px); margin-top: 18px; animation: fade-up 800ms 250ms ease both; }
+.mode-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  width: 100%;
+  border: 1px solid rgba(217, 179, 101, 0.4);
+  border-radius: 999px;
+  padding: 4px;
+  background: rgba(5, 18, 28, 0.78);
+}
+.mode-switch button {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 1px;
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 10px;
+  background: none;
+  color: rgba(239, 225, 191, 0.6);
+  cursor: pointer;
+  transition: color 240ms ease;
+}
+.mode-switch button strong { font-family: "Ma Shan Zheng", cursive; font-size: 18px; font-weight: 400; letter-spacing: 0.1em; }
+.mode-switch button small { font-size: 10px; letter-spacing: 0.08em; opacity: 0.75; }
+.mode-switch button.is-on { color: #1d2b31; }
+.mode-switch__thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 4px);
+  border-radius: 999px;
+  background: linear-gradient(180deg, #f3dc9c, #d9b465);
+  box-shadow: 0 4px 14px rgba(230, 185, 90, 0.35);
+  transition: transform 420ms cubic-bezier(0.3, 1.4, 0.5, 1);
+}
+.mode-switch__thumb[data-mode="six"] { transform: translateX(100%); }
+.question-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  border-bottom: 1px solid rgba(217, 179, 101, 0.45);
+  padding: 6px 4px;
+}
+.question-field span { flex: none; font-family: "Ma Shan Zheng", cursive; font-size: 18px; color: #e6bd62; }
+.question-field input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  padding: 6px 0;
+  background: none;
+  font-size: 15px;
+  color: #f6e8c4;
+  outline: none;
+}
+.question-field input::placeholder { color: rgba(239, 225, 191, 0.38); }
+.question-field:focus-within { border-bottom-color: rgba(246, 214, 140, 0.95); }
+
+/* ───────── six-line altar ───────── */
+.cast-altar {
+  position: absolute;
+  z-index: 60;
+  top: 76px;
+  left: 50%;
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  width: 150px;
+  border: 1px solid rgba(217, 179, 101, 0.35);
+  padding: 8px 12px 10px;
+  background: rgba(5, 18, 28, 0.82);
+  transform: translateX(-50%);
+  animation: fade-down 600ms 500ms ease both;
+  cursor: default;
+}
+.cast-altar__title { font-family: "Ma Shan Zheng", cursive; font-size: 15px; letter-spacing: 0.12em; color: #f1d68f; }
+.cast-altar__slots { display: grid; gap: 5px; width: 100%; }
+.altar-slot { position: relative; display: grid; grid-template-columns: 1fr 34px; align-items: center; gap: 8px; height: 12px; }
+.altar-slot::before { content: ""; grid-column: 1; height: 1px; background: rgba(217, 179, 101, 0.22); }
+.altar-slot.is-next::before { height: 2px; background: rgba(246, 214, 140, 0.7); animation: slot-pulse 1.2s ease-in-out infinite; }
+.altar-slot i { position: absolute; left: 0; right: 42px; height: 7px; border-radius: 1px; background: #f1d68f; box-shadow: 0 0 10px rgba(240, 196, 98, 0.6); transform-origin: center; animation: line-land 520ms cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+.altar-slot i.is-yin { background: linear-gradient(90deg, #f1d68f 0 42%, transparent 42% 58%, #f1d68f 58% 100%); box-shadow: none; }
+.altar-slot i.is-moving { background-color: transparent; }
+.altar-slot i.is-moving.is-yang { background: #e8927c; box-shadow: 0 0 12px rgba(232, 146, 124, 0.7); }
+.altar-slot i.is-moving.is-yin { background: linear-gradient(90deg, #e8927c 0 42%, transparent 42% 58%, #e8927c 58% 100%); }
+.altar-slot em { grid-column: 2; font-size: 10px; font-style: normal; letter-spacing: 0.06em; color: rgba(239, 225, 191, 0.5); text-align: right; }
+.altar-slot.is-filled em { color: #f1d68f; }
+.cast-altar.is-complete { border-color: rgba(246, 214, 140, 0.8); box-shadow: 0 0 30px rgba(240, 196, 98, 0.35); }
+.field-actions button:disabled { opacity: 0.5; cursor: default; }
 
 .safety-note { position: fixed; z-index: 85; left: 18px; bottom: 12px; margin: 0; font-size: 9px; letter-spacing: 0.08em; color: rgba(236, 221, 183, 0.28); pointer-events: none; }
 
@@ -694,6 +934,11 @@ button { color: inherit; }
 @keyframes cloud-open-left { from { transform: translateX(0); } to { transform: translateX(-103%); } }
 @keyframes cloud-open-right { from { transform: translateX(0); } to { transform: translateX(103%); } }
 @keyframes seal-arrive { from { opacity: 0; transform: translate(-50%, -50%) rotate(20deg) scale(0.7); } to { opacity: 1; transform: translate(-50%, -50%) rotate(45deg) scale(1); } }
+@keyframes line-land { from { opacity: 0; transform: scaleX(1.6) translateY(-10px); } to { opacity: 1; transform: none; } }
+@keyframes slot-pulse { 50% { opacity: 0.35; } }
+@keyframes modal-rise { from { opacity: 0; transform: translateY(18px) scale(0.97); } }
+@keyframes caret { 50% { opacity: 0; } }
+@keyframes ink-dots { to { background-position: 8px 50%; } }
 @keyframes seal-leave { from { opacity: 1; } to { opacity: 0; transform: translate(-50%, -50%) rotate(70deg) scale(1.25); } }
 
 @media (max-width: 1000px) {
@@ -703,9 +948,10 @@ button { color: inherit; }
 
 @media (max-height: 800px) and (min-width: 681px) {
   .topic-stage { padding-top: 92px; }
-  .topic-deck { --card-w: clamp(88px, 9vw, 118px); margin-top: 22px; }
+  .topic-deck { --card-w: clamp(84px, 8.4vw, 110px); margin-top: 14px; }
   .topic-footnote { margin-top: 30px; }
-  .result-stage { padding: 84px 0 28px; }
+  .result-inner { padding: 136px 0 40px; }
+  .ask-panel { margin-top: 10px; gap: 8px; }
   .result-heading h1 { font-size: 42px; }
   .reading-grid { grid-template-columns: 218px 1fr; gap: 40px; margin-top: 14px; }
   .reading-card__content h2 { font-size: 44px; }
@@ -729,7 +975,7 @@ button { color: inherit; }
   .topic-heading h1 { font-size: 33px; }
   .topic-heading span { font-size: 11px; }
   .topic-deck {
-    --card-w: min(27vw, 108px);
+    --card-w: min(24vw, 96px);
     display: grid;
     grid-template-columns: repeat(3, var(--card-w));
     justify-content: center;
@@ -748,9 +994,18 @@ button { color: inherit; }
   .field-actions { left: 50%; right: auto; bottom: 42px; transform: translateX(-50%); white-space: nowrap; }
   .field-actions button { padding: 9px 14px; font-size: 13px; }
   .field-actions kbd { display: none; }
-  .result-stage { width: min(100% - 28px, 520px); padding-top: 92px; overflow-y: auto; }
+  .result-inner { width: min(100% - 28px, 520px); padding: 104px 0 60px; }
+  .result-stage { -webkit-mask-image: linear-gradient(180deg, transparent 0, transparent 62px, #000 100px); mask-image: linear-gradient(180deg, transparent 0, transparent 62px, #000 100px); }
+  .ai-reading { padding: 18px 18px 20px; }
+  .ask-panel { margin-top: 12px; gap: 10px; }
+  .mode-switch button strong { font-size: 16px; }
+  .mode-switch button small { font-size: 9px; }
+  .question-field input { font-size: 16px; } /* ≥16px stops iOS zooming on focus */
+  .cast-altar { top: 92px; width: 132px; padding: 6px 10px 8px; }
   .reading-grid { grid-template-columns: 1fr; gap: 20px; }
   .reading-card { width: min(52vw, 210px); margin: 0 auto; }
+  .reading-cards { gap: 16px; }
+  .relating-card { max-width: 320px; }
   .reading-card__content h2 { font-size: 40px; }
   .hex-lines { gap: 6px; }
   .hex-lines i { height: 6px; }

@@ -117,14 +117,14 @@ export function drawField(ctx, field, sprites, { dpr, dt, quality }) {
   const heldId = field.grab?.id ?? null;
   const order = field.order ?? (field.order = field.bodies.slice());
   order.sort((a, b) => {
-    const pa = a.id === heldId || a.id === field.chosenId ? 9 : a.z;
-    const pb = b.id === heldId || b.id === field.chosenId ? 9 : b.z;
+    const pa = a.id === heldId || a.id === field.chosenId || a.cast ? 9 : a.z;
+    const pb = b.id === heldId || b.id === field.chosenId || b.cast ? 9 : b.z;
     return pa - pb;
   });
 
   const spriteToCss = 1 / (MAX_SCALE * dpr); // sprite px → CSS px at scale 1
   for (const body of order) {
-    const emphasised = body.id === heldId || body.id === field.chosenId ? 1 : body.id === field.hoverId ? 0.6 : 0;
+    const emphasised = body.id === heldId || body.id === field.chosenId || body.cast ? 1 : body.id === field.hoverId ? 0.6 : 0;
     body.glow = damp(body.glow ?? 0, emphasised, 12, dt);
     if (body.opacity <= 0.01 || body.x < -200 || body.x > width + 200 || body.y < -300 || body.y > height + 300) continue;
 

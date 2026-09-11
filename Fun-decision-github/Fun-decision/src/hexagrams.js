@@ -101,3 +101,50 @@ export function hexagramLines(number) {
   }
   return [1, 1, 1, 1, 1, 1];
 }
+
+/* ───────── richer helpers (trigrams, full names, casting) ───────── */
+
+import { HEXAGRAM_TEXTS } from "./hexagramTexts.js";
+
+// Index order matches TRIGRAM_INDEX: 乾 兑 离 震 巽 坎 艮 坤
+export const TRIGRAMS = [
+  { name: "乾", image: "天" }, { name: "兑", image: "泽" }, { name: "离", image: "火" }, { name: "震", image: "雷" },
+  { name: "巽", image: "风" }, { name: "坎", image: "水" }, { name: "艮", image: "山" }, { name: "坤", image: "地" },
+];
+
+/** Upper / lower trigram and the traditional full name, e.g. 地天泰, 乾为天. */
+export function hexagramInfo(number) {
+  const hexagram = HEXAGRAMS[number - 1];
+  const bits = hexagramLines(number);
+  const lower = TRIGRAMS[TRIGRAM_INDEX[bits.slice(0, 3).join("")]];
+  const upper = TRIGRAMS[TRIGRAM_INDEX[bits.slice(3, 6).join("")]];
+  const fullName = upper === lower ? `${upper.name}为${upper.image}` : `${upper.image}${lower.image}${hexagram.name}`;
+  return { ...hexagram, ...HEXAGRAM_TEXTS[number], upper, lower, fullName, bits };
+}
+
+/** The category-specific reading; 近期综合 falls back to the overall meaning. */
+export function categoryReading(number, categoryId) {
+  const texts = HEXAGRAM_TEXTS[number];
+  return texts.byCategory[categoryId] ?? texts.meaning;
+}
+
+/** One line cast with the three-coin method: 6 老阴 (1/8), 7 少阳 (3/8), 8 少阴 (3/8), 9 老阳 (1/8). */
+export function castLine(random = Math.random) {
+  const heads = [0, 0, 0].map(() => (random() < 0.5 ? 3 : 2));
+  return heads[0] + heads[1] + heads[2];
+}
+
+const POSITION = ["初", "二", "三", "四", "五", "上"];
+/** Traditional name of a line, e.g. 初九, 六二, 上六. */
+export function lineName(value, index) {
+  const kind = value === 7 || value === 9 ? "九" : "六";
+  return index === 0 || index === 5 ? `${POSITION[index]}${kind}` : `${kind}${POSITION[index]}`;
+}
+
+/** Resolve six cast values (bottom first) into 本卦, 变爻 and 之卦. */
+export function readCast(values) {
+  const primary = resolveHexagram(values);
+  const moving = values.map((value, index) => (value === 6 || value === 9 ? index : -1)).filter((index) => index >= 0);
+  const relating = moving.length ? resolveHexagram(changedLines(values)) : null;
+  return { primary, moving, relating, values };
+}

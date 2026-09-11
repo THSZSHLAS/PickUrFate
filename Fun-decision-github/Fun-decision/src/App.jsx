@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
-import { CATEGORIES, HEXAGRAMS, hexagramLines } from "./hexagrams.js";
+import { CATEGORIES, castLine, hexagramInfo, lineName, readCast } from "./hexagrams.js";
 import {
   createField,
   createOneEuro,
@@ -10,9 +10,12 @@ import {
   pickCard,
   releaseCard,
   resizeField,
+  startCast,
   startGather,
   stepField,
 } from "./cardPhysics.js";
+import { ResultStage, clearTilt, tiltToward } from "./ResultStage.jsx";
+import { getTilt, onShake, recenterTilt, requestMotion } from "./motion.js";
 import { buildSprites, cardRect, drawField, loadImage } from "./cardRenderer.js";
 import { isSoundOn, setSoundOn, setWind, sfx, unlockAudio } from "./sound.js";
 
@@ -23,12 +26,16 @@ const MODEL_URL = asset("models/gesture_recognizer.task");
 const CARD_BACK = asset("assets/card-back.webp");
 const CARD_FACE = asset("assets/card-face.webp");
 const LIGHT_CURSOR = asset("assets/light-cursor-glow.webp");
+const SCENE_BG = asset("assets/scene-bg.webp");
 const TOPIC_NUMERALS = ["壹", "贰", "叁", "肆", "伍", "陆"];
 const HOLD_MS = { hand: 2000, pointer: 1200 };
 // Phones and low-core machines start in the lighter render mode; anyone can still drop to it
 // automatically if frames run long.
 const LITE_DEVICE = typeof window !== "undefined"
   && (window.matchMedia?.("(pointer: coarse)").matches || (navigator.hardwareConcurrency ?? 8) <= 4);
+const COARSE_POINTER = typeof window !== "undefined" && Boolean(window.matchMedia?.("(pointer: coarse)").matches);
+const MODE_KEY = "fun-decision:mode";
+const loadMode = () => { try { return window.localStorage.getItem(MODE_KEY) === "six" ? "six" : "quick"; } catch { return "quick"; } };
 const canvasDpr = (quality) => Math.min(window.devicePixelRatio || 1, quality === "lite" ? 1.5 : 2);
 
 // Warm the image cache early so entering the field never waits on a decode.
@@ -38,91 +45,6 @@ if (typeof window !== "undefined") {
 const HOLD_RING_LENGTH = 2 * Math.PI * 30;
 
 const buzz = (pattern) => { try { navigator.vibrate?.(pattern); } catch { /* optional */ } };
-
-/** Tilt a card element toward a point, as if pressed there by a fingertip. */
-function tiltToward(element, clientX, clientY, strength = 1) {
-  if (!element) return;
-  const box = element.getBoundingClientRect();
-  const px = Math.min(1, Math.max(0, (clientX - box.left) / box.width));
-  const py = Math.min(1, Math.max(0, (clientY - box.top) / box.height));
-  element.style.setProperty("--rx", `${((0.5 - py) * 22 * strength).toFixed(2)}deg`);
-  element.style.setProperty("--ry", `${((px - 0.5) * 26 * strength).toFixed(2)}deg`);
-  element.style.setProperty("--gx", `${(px * 100).toFixed(1)}%`);
-  element.style.setProperty("--gy", `${(py * 100).toFixed(1)}%`);
-}
-
-function clearTilt(element) {
-  if (!element) return;
-  element.style.setProperty("--rx", "0deg");
-  element.style.setProperty("--ry", "0deg");
-  element.style.setProperty("--gx", "50%");
-  element.style.setProperty("--gy", "30%");
-}
-
-function HexagramLines({ id }) {
-  const lines = hexagramLines(id);
-  return (
-    <div className="hex-lines" aria-hidden="true">
-      {[...lines].reverse().map((bit, index) => (
-        <i key={index} className={bit ? "is-yang" : "is-yin"} style={{ "--line": index }} />
-      ))}
-    </div>
-  );
-}
-
-function ReadingCard({ hexagram, fromRect }) {
-  const flipRef = useRef(null);
-  const tiltRef = useRef(null);
-
-  useLayoutEffect(() => {
-    const element = flipRef.current;
-    if (!element?.animate) return undefined;
-    const to = element.getBoundingClientRect();
-    let start = "translate(0px, 40px) scale(0.86) rotateY(180deg)";
-    if (fromRect && to.width) {
-      const dx = fromRect.left + fromRect.width / 2 - (to.left + to.width / 2);
-      const dy = fromRect.top + fromRect.height / 2 - (to.top + to.height / 2);
-      start = `translate(${dx}px, ${dy}px) scale(${fromRect.width / to.width}) rotateY(180deg)`;
-    }
-    sfx.flip();
-    const animation = element.animate(
-      [
-        { transform: start },
-        { transform: "translate(0px, -18px) scale(1.04) rotateY(0deg)", offset: 0.78 },
-        { transform: "translate(0px, 0px) scale(1) rotateY(0deg)" },
-      ],
-      { duration: 1250, easing: "cubic-bezier(0.22, 0.7, 0.18, 1)", fill: "backwards" },
-    );
-    return () => animation.cancel();
-  }, [fromRect]);
-
-  return (
-    <article
-      className="reading-card"
-      onPointerMove={(event) => tiltToward(tiltRef.current, event.clientX, event.clientY, 0.8)}
-      onPointerLeave={() => clearTilt(tiltRef.current)}
-    >
-      <div ref={tiltRef} className="reading-card__tilt">
-        <div ref={flipRef} className="reading-card__flip">
-          <div className="reading-card__face reading-card__face--front">
-            <img src={CARD_FACE} alt="" className="reading-card__paper" draggable="false" />
-            <div className="reading-card__content">
-              <p>第 {hexagram.id} 卦</p>
-              <h2>{hexagram.name}</h2>
-              <HexagramLines id={hexagram.id} />
-              <span>{hexagram.tone}</span>
-            </div>
-            <i className="card-sheen" />
-          </div>
-          <div className="reading-card__face reading-card__face--back">
-            <img src={CARD_BACK} alt="" draggable="false" />
-          </div>
-        </div>
-      </div>
-      <div className="reading-card__shadow" aria-hidden="true" />
-    </article>
-  );
-}
 
 function TopicCard({ item, index, activeIndex, chosenId, onChoose, onHover }) {
   const tiltRef = useRef(null);
@@ -178,7 +100,10 @@ export function App() {
   const [hoverTopicId, setHoverTopicId] = useState(null);
   const [chosenTopicId, setChosenTopicId] = useState(null);
   const [transitionPhase, setTransitionPhase] = useState(null);
-  const [selectedHex, setSelectedHex] = useState(null);
+  const [result, setResult] = useState(null);
+  const [mode, setModeState] = useState(loadMode);
+  const [question, setQuestion] = useState("");
+  const [casts, setCasts] = useState([]);
   const [revealRect, setRevealRect] = useState(null);
   const [drawRound, setDrawRound] = useState(0);
   const [gestureText, setGestureText] = useState("请将一只手举到摄像头前");
@@ -218,6 +143,12 @@ export function App() {
   const filtersRef = useRef({ x: createOneEuro(), y: createOneEuro() });
   const transitionTimersRef = useRef([]);
   const gatherRef = useRef(() => {});
+  const castRef = useRef(() => {});
+  const modeRef = useRef(mode);
+  const castsRef = useRef([]);
+  const castBusyRef = useRef(0);
+  const fistLatchRef = useRef(false);
+  const altarRef = useRef(null);
   const finishGatherRef = useRef(() => {});
 
   const category = useMemo(
@@ -226,6 +157,14 @@ export function App() {
   );
 
   useEffect(() => { stageRef.current = stage; }, [stage]);
+  useEffect(() => { modeRef.current = mode; }, [mode]);
+
+  const setMode = useCallback((next) => {
+    setModeState(next);
+    modeRef.current = next;
+    try { window.localStorage.setItem(MODE_KEY, next); } catch { /* optional */ }
+    sfx.tick(next === "six" ? 3 : 1);
+  }, []);
 
   const setGesture = useCallback((value) => {
     if (gestureRef.current !== value) {
@@ -329,7 +268,7 @@ export function App() {
       stageRef.current = "field";
       setStage("field");
       setChosenTopicId(null);
-      setGesture("拨开万象 · 捏住一张牌 2 秒定卦");
+      setGesture(modeRef.current === "six" ? "第 1 / 6 爻 · 拈一张牌甩向爻台" : "拨开万象 · 拈起一张牌，按住定卦");
       setTransitionPhase("opening");
     }, 1180);
     later(() => setTransitionPhase(null), 2100);
@@ -382,9 +321,14 @@ export function App() {
     grabSourceRef.current = null;
     if (cursorElRef.current) cursorElRef.current.dataset.grabbing = "false";
     if (!sim?.grab) return;
+    const heldFor = sim.time - (sim.grab.since ?? sim.time);
     const body = releaseCard(sim);
-    if (body) {
-      if (stageRef.current === "field") sfx.release(Math.hypot(body.vx, body.vy), body.x);
+    if (body && stageRef.current === "field") {
+      // Six-line mode: flicking a card upward sends it to the altar.
+      const upward = Math.min(body.vy, cursorRef.current.vy);
+      if (import.meta.env.DEV) window.__fdLastRelease = { bodyVy: body.vy, cursorVy: cursorRef.current.vy, heldFor };
+      if (modeRef.current === "six" && upward < -850 && heldFor > 0.05) castRef.current(body);
+      else sfx.release(Math.hypot(body.vx, body.vy), body.x);
     }
     resetHold();
   }, [resetHold]);
@@ -392,24 +336,39 @@ export function App() {
   const gatherCards = useCallback((preferred) => {
     const sim = simRef.current;
     if (stageRef.current !== "field" || selectedRef.current || !sim) return;
+    if (modeRef.current === "six" && castsRef.current.length < 6) return;
     releaseGrab();
     setHoverCard(null);
     resetHold();
     const cursor = cursorRef.current;
-    let choice = preferred;
+    const alive = sim.bodies.filter((body) => !body.gone && !body.cast);
+    let choice = preferred && !preferred.gone ? preferred : null;
     if (!choice) {
-      const candidates = [...sim.bodies]
+      const candidates = [...alive]
         .sort((a, b) => Math.hypot(a.x - cursor.x, a.y - cursor.y) - Math.hypot(b.x - cursor.x, b.y - cursor.y))
-        .slice(0, cursor.active ? 12 : 64);
-      choice = candidates[Math.floor(Math.random() * candidates.length)] ?? sim.bodies[0];
+        .slice(0, cursor.active ? 12 : alive.length);
+      choice = candidates[Math.floor(Math.random() * candidates.length)] ?? alive[0];
     }
-    const hexagram = HEXAGRAMS[choice.id - 1];
-    selectedRef.current = hexagram;
-    setSelectedHex(hexagram);
+    let next;
+    if (modeRef.current === "six") {
+      const cast = readCast(castsRef.current);
+      next = {
+        method: "six",
+        primary: hexagramInfo(cast.primary.id),
+        relating: cast.relating ? hexagramInfo(cast.relating.id) : null,
+        moving: cast.moving,
+        movingNames: cast.moving.map((index) => lineName(cast.values[index], index)),
+        values: cast.values,
+      };
+    } else {
+      next = { method: "quick", primary: hexagramInfo(choice.id), relating: null, moving: [], movingNames: [], values: null };
+    }
+    selectedRef.current = next;
+    setResult(next);
     startGather(sim, choice.id);
     stageRef.current = "gathering";
     setStage("gathering");
-    setGesture("万象归一 · 此卦已定");
+    setGesture(modeRef.current === "six" ? "六爻已成 · 卦象显现" : "万象归一 · 此卦已定");
     buzz([10, 60, 18]);
     sfx.confirm();
     sfx.gather();
@@ -417,6 +376,52 @@ export function App() {
     // The physics loop calls finishGather once the tween has played out; this is only a safety net.
     later(() => finishGatherRef.current(), 4000);
   }, [later, releaseGrab, resetHold, setGesture, setHoverCard]);
+
+  /** Six-line mode: send one card to the altar and cast its line. */
+  const castFrom = useCallback((preferred) => {
+    const sim = simRef.current;
+    if (stageRef.current !== "field" || !sim || modeRef.current !== "six") return;
+    const index = castsRef.current.length;
+    const now = performance.now();
+    if (index >= 6 || now - castBusyRef.current < 280) return;
+    castBusyRef.current = now;
+    let body = preferred;
+    if (!body || body.gone || body.cast) {
+      const cursor = cursorRef.current;
+      const alive = sim.bodies.filter((item) => !item.gone && !item.cast);
+      alive.sort((a, b) => Math.hypot(a.x - cursor.x, a.y - cursor.y) - Math.hypot(b.x - cursor.x, b.y - cursor.y));
+      body = alive[Math.floor(Math.random() * Math.min(10, alive.length))];
+    }
+    if (!body) return;
+    if (sim.grab?.id === body.id) {
+      grabSourceRef.current = null;
+      if (cursorElRef.current) cursorElRef.current.dataset.grabbing = "false";
+    }
+    resetHold();
+    const slot = altarRef.current?.querySelector(`[data-index="${index}"]`)?.getBoundingClientRect();
+    const box = fieldRef.current?.getBoundingClientRect();
+    const tx = slot && box ? slot.left + slot.width / 2 - box.left : sim.width / 2;
+    const ty = slot && box ? slot.top + slot.height / 2 - box.top : 110;
+    startCast(sim, body, tx, ty);
+    const value = castLine();
+    castsRef.current = [...castsRef.current, value];
+    sfx.release(1400, body.x);
+    buzz(10);
+    const count = castsRef.current.length;
+    setGesture(count < 6 ? `第 ${count + 1} / 6 爻 · 继续拈牌甩向爻台` : "六爻俱全 · 卦成");
+    later(() => {
+      setCasts(castsRef.current.slice(0, count));
+      if (value === 6 || value === 9) sfx.confirm(); else sfx.tick(2);
+    }, 560);
+    if (count === 6) later(() => gatherRef.current(), 1250);
+  }, [later, resetHold, setGesture]);
+  castRef.current = castFrom;
+
+  /** The "resolve" action: cast the next line in six-line mode, or gather the field in quick mode. */
+  const resolveAction = useCallback(() => {
+    if (modeRef.current === "six") castRef.current();
+    else gatherRef.current();
+  }, []);
 
   const finishGather = useCallback(() => {
     if (stageRef.current !== "gathering") return;
@@ -514,12 +519,16 @@ export function App() {
       if (!sim.grab && !beginGrab("hand")) setGesture("靠近一张牌 · 捏住即可拈起");
     } else if (label === "Closed_Fist") {
       if (!fistSinceRef.current) fistSinceRef.current = now;
-      setGesture("握拳收卦 · 正在聚拢");
-      if (now - fistSinceRef.current > 520) gatherCards();
+      if (!fistLatchRef.current) setGesture(modeRef.current === "six" ? "握拳落爻 · 随缘取一张" : "握拳收卦 · 正在聚拢");
+      if (now - fistSinceRef.current > 520 && !fistLatchRef.current) {
+        fistLatchRef.current = modeRef.current === "six"; // one line per fist in six-line mode
+        resolveAction();
+      }
     } else {
       fistSinceRef.current = 0;
+      fistLatchRef.current = false;
     }
-  }, [beginGrab, chooseCategory, enterTopics, gatherCards, progressHold, releaseGrab, resetHold, setGesture, updateCursor]);
+  }, [beginGrab, chooseCategory, enterTopics, progressHold, releaseGrab, resetHold, resolveAction, setGesture, updateCursor]);
 
   const beginRecognitionLoop = useCallback(() => {
     let lastVideoTime = -1;
@@ -663,10 +672,12 @@ export function App() {
           paintHold(visible, visible >= 1 ? "已确认" : steady ? `定住此牌 · ${((total - holdElapsedRef.current) / 1000).toFixed(1)} 秒` : "稳住手 · 即可定卦");
           if (holdElapsedRef.current >= total) {
             const body = sim.bodies.find((item) => item.id === sim.grab.id);
-            gatherRef.current(body);
+            if (modeRef.current === "six") castRef.current(body);
+            else gatherRef.current(body);
           }
         }
       }
+      sim.gravity = COARSE_POINTER ? getTilt() : null;
       stepField(sim, dt);
       drawField(ctx, sim, sprites, { dpr, dt: Math.min(dt, 0.05), quality });
       const wind = sim.mode === "field" ? Math.round(sim.energy * 20) / 20 : 0;
@@ -689,8 +700,17 @@ export function App() {
       resizeField(sim, field.clientWidth, field.clientHeight);
       sizeCanvas();
     };
+    recenterTilt();
+    const offShake = onShake(() => {
+      if (stageRef.current !== "field") return;
+      gust(sim, 1.2);
+      sfx.gust();
+      buzz(20);
+      setGesture("摇动乾坤 · 牌潮翻涌");
+    });
     window.addEventListener("resize", onResize);
     return () => {
+      offShake();
       setWind(0);
       window.removeEventListener("resize", onResize);
       if (physicsFrameRef.current) cancelAnimationFrame(physicsFrameRef.current);
@@ -724,8 +744,10 @@ export function App() {
     topicPinchLatchRef.current = false;
     pinchActiveRef.current = false;
     resetHold();
-    setSelectedHex(null);
+    setResult(null);
     setRevealRect(null);
+    castsRef.current = [];
+    setCasts([]);
     setCategoryId(null);
     setFocusedTopicId(null);
     setHoverTopicId(null);
@@ -740,10 +762,12 @@ export function App() {
 
   const drawAgain = useCallback(() => {
     selectedRef.current = null;
-    setSelectedHex(null);
+    setResult(null);
     setRevealRect(null);
+    castsRef.current = [];
+    setCasts([]);
     setDrawRound((value) => value + 1);
-    setGesture("牌潮再起 · 拈起一张，按住不动即定卦");
+    setGesture(modeRef.current === "six" ? "第 1 / 6 爻 · 拈一张牌甩向爻台" : "牌潮再起 · 拈起一张，按住不动即定卦");
     stageRef.current = "field";
     setStage("field");
   }, [setGesture]);
@@ -760,7 +784,7 @@ export function App() {
 
   const handlePointerDown = useCallback((event) => {
     if (stageRef.current !== "field") return;
-    if (event.target.closest?.(".field-actions")) return;
+    if (event.target.closest?.(".field-actions, .cast-altar")) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     cursorRef.current.down = true;
     const box = fieldRef.current.getBoundingClientRect();
@@ -773,7 +797,7 @@ export function App() {
     cursorRef.current.down = false;
     if (grabSourceRef.current === "pointer") {
       releaseGrab();
-      if (stageRef.current === "field") setGesture("拨开万象 · 拈起一张，按住不动即定卦");
+      if (stageRef.current === "field" && modeRef.current !== "six") setGesture("拨开万象 · 拈起一张，按住不动即定卦");
     }
     if (event.pointerType === "touch") {
       cursorRef.current.active = false;
@@ -798,6 +822,7 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event) => {
+      if (event.target?.closest?.("input, textarea, [contenteditable]")) return; // typing a question
       if (stageRef.current === "topics" && /^[1-6]$/.test(event.key)) {
         chooseCategory(CATEGORIES[Number(event.key) - 1].id);
       } else if (stageRef.current === "field" && event.code === "Space") {
@@ -805,17 +830,20 @@ export function App() {
         shuffleField();
       } else if (stageRef.current === "field" && event.key === "Enter") {
         event.preventDefault();
-        gatherCards();
+        resolveAction();
       } else if (event.key === "Escape" && stageRef.current !== "calibration") {
         reset();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [chooseCategory, gatherCards, reset, shuffleField]);
+  }, [chooseCategory, reset, resolveAction, shuffleField]);
 
   useEffect(() => {
-    const unlock = () => unlockAudio();
+    const unlock = () => {
+      unlockAudio();
+      if (COARSE_POINTER) requestMotion(); // iOS asks for motion permission; must be inside a tap
+    };
     window.addEventListener("pointerdown", unlock, { capture: true });
     window.addEventListener("keydown", unlock, { capture: true });
     return () => {
@@ -882,14 +910,39 @@ export function App() {
             <i className={["detecting", "connected"].includes(cameraState) ? "is-on" : ""}>发现手掌</i>
           </div>
           <button type="button" className="calibration-skip" onClick={() => enterTopics(false)}>
-            {cameraState === "fallback" ? "摄像头暂不可用，使用鼠标继续" : "暂用鼠标继续"}
+            {cameraState === "fallback"
+              ? `摄像头暂不可用，使用${COARSE_POINTER ? "触屏" : "鼠标"}继续`
+              : COARSE_POINTER ? "用触屏继续" : "暂用鼠标继续"}
           </button>
         </section>
       )}
 
       {(stage === "topics" || stage === "transition") && (
         <section className={`topic-stage ${chosenTopicId ? "has-choice" : ""}`} aria-labelledby="topic-heading">
-          <div className="topic-heading"><p>六事为门</p><h1 id="topic-heading">此刻，你想问什么？</h1><span>选一张即可，无需多言</span></div>
+          <div className="topic-heading"><p>六事为门</p><h1 id="topic-heading">此刻，你想问什么？</h1></div>
+          <div className="ask-panel">
+            <div className="mode-switch" role="radiogroup" aria-label="起卦方式">
+              <button type="button" role="radio" aria-checked={mode === "quick"} className={mode === "quick" ? "is-on" : ""} onClick={() => setMode("quick")}>
+                <strong>快速抽卦</strong><small>一牌定卦</small>
+              </button>
+              <button type="button" role="radio" aria-checked={mode === "six"} className={mode === "six" ? "is-on" : ""} onClick={() => setMode("six")}>
+                <strong>六爻起卦</strong><small>六次落爻 · 有本卦变卦</small>
+              </button>
+              <i className="mode-switch__thumb" data-mode={mode} aria-hidden="true" />
+            </div>
+            <label className="question-field">
+              <span>所问</span>
+              <input
+                type="text"
+                value={question}
+                maxLength={80}
+                enterKeyHint="done"
+                onChange={(event) => setQuestion(event.target.value)}
+                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
+                placeholder="写下想问的事（可选），如：要不要换工作？"
+              />
+            </label>
+          </div>
           <div className="topic-deck">
             {CATEGORIES.map((item, index) => (
               <TopicCard
@@ -921,30 +974,54 @@ export function App() {
         >
           <div className="storm-vortex" aria-hidden="true" />
           <canvas ref={canvasRef} className="card-canvas" aria-hidden="true" />
-          <div className="gesture-hud" aria-live="polite"><strong>{gestureText}</strong><span>{cameraState === "connected" ? cameraNote : "拖动拈牌 · 甩出即飞 · 按住一张不动 1.2 秒定卦"}</span></div>
+          {mode === "six" && (
+            <div ref={altarRef} className={`cast-altar ${casts.length === 6 ? "is-complete" : ""}`} aria-label={`爻台，已落 ${casts.length} 爻`}>
+              <span className="cast-altar__title">爻台 · {casts.length}/6</span>
+              <div className="cast-altar__slots">
+                {[5, 4, 3, 2, 1, 0].map((index) => {
+                  const value = casts[index];
+                  const filled = value !== undefined;
+                  const yang = value === 7 || value === 9;
+                  const moving = value === 6 || value === 9;
+                  return (
+                    <div key={index} data-index={index} className={`altar-slot ${filled ? "is-filled" : ""} ${index === casts.length ? "is-next" : ""}`}>
+                      {filled && <i className={`${yang ? "is-yang" : "is-yin"} ${moving ? "is-moving" : ""}`} />}
+                      <em>{filled ? lineName(value, index) : ["初", "二", "三", "四", "五", "上"][index]}</em>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          <div className="gesture-hud" aria-live="polite">
+            <strong>{gestureText}</strong>
+            <span>
+              {cameraState === "connected"
+                ? cameraNote
+                : mode === "six"
+                  ? "拈起一张牌向上甩入爻台 · 或按住不动 1.2 秒 · 或点「落爻」"
+                  : `拖动拈牌 · 甩出即飞 · 按住一张不动 1.2 秒定卦${COARSE_POINTER ? " · 倾斜或摇一摇手机" : ""}`}
+            </span>
+          </div>
           <div className="field-actions">
             <button type="button" onClick={shuffleField}>挥手乱卦<kbd>空格</kbd></button>
-            <button type="button" className="field-actions__primary" onClick={() => gatherCards()}>握拳定卦<kbd>回车</kbd></button>
+            <button type="button" className="field-actions__primary" onClick={resolveAction} disabled={mode === "six" && casts.length >= 6}>
+              {mode === "six" ? `落爻 ${Math.min(casts.length + 1, 6)}/6` : "握拳定卦"}<kbd>回车</kbd>
+            </button>
           </div>
         </section>
       )}
 
-      {stage === "result" && selectedHex && (
-        <section className="result-stage">
-          <div className="result-heading"><p>{category.label} · 一牌自现</p><h1>你抽到了「{selectedHex.name}」</h1></div>
-          <div className="reading-grid">
-            <ReadingCard hexagram={selectedHex} fromRect={revealRect} />
-            <article className="reading-copy">
-              <span className="reading-copy__seal">解</span>
-              <p className="reading-copy__category">{selectedHex.tone}</p>
-              <h2>{selectedHex.text}</h2>
-              <p>{category.lens}</p>
-              <blockquote>{category.action}</blockquote>
-              <p className="change-note">卦意只是一面温和的镜子。带走此刻最有共鸣的一句，其余交给时间。</p>
-            </article>
-          </div>
-          <div className="result-actions"><button type="button" onClick={reset}>重新问卦</button><button type="button" onClick={drawAgain}>同一件事再抽一张</button></div>
-        </section>
+      {stage === "result" && result && (
+        <ResultStage
+          result={result}
+          category={category}
+          question={question}
+          fromRect={revealRect}
+          assets={{ cardBack: CARD_BACK, cardFace: CARD_FACE, background: SCENE_BG }}
+          onRestart={reset}
+          onAgain={drawAgain}
+        />
       )}
 
       {stage !== "result" && (
