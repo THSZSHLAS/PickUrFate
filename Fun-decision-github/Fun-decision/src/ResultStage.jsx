@@ -6,6 +6,8 @@ import { renderPoster } from "./poster.js";
 import { getTilt } from "./motion.js";
 import { sfx } from "./sound.js";
 
+// When the key is baked into the build, visitors never see settings.
+const BUILT_IN_KEY = Boolean(AI_DEFAULTS.apiKey);
 const COARSE = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches;
 
 /** Tilt a card element toward a point, as if pressed there by a fingertip. */
@@ -126,8 +128,8 @@ function AiSettings({ onClose, onSaved }) {
           onSaved(clean);
         }}
       >
-        <h3 id="ai-settings-title">接入 AI 解卦</h3>
-        <p className="modal__hint">填入 DeepSeek（或任何兼容 OpenAI 格式）的接口信息，抽完卦后会结合你的问题生成详细解读。Key 只保存在这台设备的浏览器里。</p>
+        <h3 id="ai-settings-title">开启卦师细解</h3>
+        <p className="modal__hint">填入解读接口信息（兼容 OpenAI 格式），抽完卦后会结合你的问题生成详细解读。信息只保存在这台设备的浏览器里。</p>
         <label>API Key<input type="password" value={config.apiKey} onChange={update("apiKey")} placeholder="sk-…（用自己的代理地址时可留空）" autoComplete="off" /></label>
         <label>接口地址<input value={config.baseUrl} onChange={update("baseUrl")} placeholder={AI_DEFAULTS.baseUrl} /></label>
         <label>模型<input value={config.model} onChange={update("model")} placeholder={AI_DEFAULTS.model} /></label>
@@ -189,13 +191,13 @@ function AiReading({ request }) {
       <header>
         <span className="ai-reading__seal">详</span>
         <div>
-          <h3>AI 细解</h3>
-          <p>{ready ? `${config.model} · 结合你的所问逐层解读` : "接入 AI 后，可结合你写下的问题生成更详细的解读"}</p>
+          <h3>卦师细解</h3>
+          <p>结合你的所问，逐层展开此卦</p>
         </div>
-        <button type="button" className="ai-reading__gear" onClick={() => setShowSettings(true)} aria-label="AI 设置">设置</button>
+        {!BUILT_IN_KEY && <button type="button" className="ai-reading__gear" onClick={() => setShowSettings(true)} aria-label="细解设置">设置</button>}
       </header>
       {!ready && (
-        <button type="button" className="ai-reading__connect" onClick={() => setShowSettings(true)}>接入 DeepSeek，开启细解</button>
+        <button type="button" className="ai-reading__connect" onClick={() => setShowSettings(true)}>开启卦师细解</button>
       )}
       {ready && state.status === "idle" && <p className="ai-reading__muted">正在准备解读…</p>}
       {ready && state.status === "loading" && (
@@ -204,7 +206,7 @@ function AiReading({ request }) {
       {state.text && (
         <div className={`ai-reading__body ${state.status === "streaming" ? "is-streaming" : ""}`} dangerouslySetInnerHTML={{ __html: renderMarkdown(state.text) }} />
       )}
-      {state.status === "error" && <p className="ai-reading__error">{state.error}</p>}
+      {state.status === "error" && <p className="ai-reading__error">{state.error.replace(/AI\s?接口/g, "解读服务")}</p>}
       {ready && (state.status === "done" || state.status === "error") && (
         <button type="button" className="ai-reading__again" onClick={() => start()}>重新解读</button>
       )}
@@ -310,8 +312,8 @@ export function ResultStage({ result, category, question, fromRect, assets, onRe
               <div><span>象曰</span><p>{primary.image}</p></div>
             </div>
             <p>{primary.meaning}</p>
-            <h4 className="reading-copy__sub">关于「{category.label}」</h4>
-            <p>{categoryReading(primary.id, category.id)}</p>
+            <h4 className="reading-copy__sub">{category.id === "custom" ? "关于你的所问" : `关于「${category.label}」`}</h4>
+            <p>{categoryReading(primary.id, category.id === "custom" ? "general" : category.id)}</p>
             <blockquote>{category.action}</blockquote>
             {relating && (
               <>

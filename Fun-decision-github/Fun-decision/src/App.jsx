@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
-import { CATEGORIES, castLine, hexagramInfo, inferCategory, lineName, readCast } from "./hexagrams.js";
+import { CATEGORIES, castLine, customCategory, hexagramInfo, inferCategory, lineName, readCast } from "./hexagrams.js";
 import {
   createField,
   createOneEuro,
@@ -152,8 +152,8 @@ export function App() {
   const finishGatherRef = useRef(() => {});
 
   const category = useMemo(
-    () => CATEGORIES.find((item) => item.id === categoryId) ?? CATEGORIES.at(-1),
-    [categoryId],
+    () => (categoryId === "custom" ? customCategory(question) : CATEGORIES.find((item) => item.id === categoryId) ?? CATEGORIES.at(-1)),
+    [categoryId, question],
   );
 
   useEffect(() => { stageRef.current = stage; }, [stage]);
@@ -938,7 +938,8 @@ export function App() {
                 event.preventDefault();
                 if (!question.trim()) return;
                 event.currentTarget.querySelector("input")?.blur();
-                chooseCategory(inferCategory(question));
+                // A question that fits none of the six topics is read exactly as written.
+                chooseCategory(inferCategory(question) ?? "custom");
               }}
             >
               <span>所问</span>
@@ -957,7 +958,9 @@ export function App() {
             </form>
             <p className="question-hint" aria-live="polite">
               {question.trim()
-                ? <>将按「{CATEGORIES.find((item) => item.id === guessedTopicId)?.label}」解读 · 回车或点「直接起卦」，也可改点下方主题牌</>
+                ? guessedTopicId
+                  ? <>将按「{CATEGORIES.find((item) => item.id === guessedTopicId)?.label}」解读 · 回车或点「直接起卦」，也可改点下方主题牌</>
+                  : <>将直接按你写下的问题解读 · 回车或点「直接起卦」，也可点下方主题牌指定类别</>
                 : "写下问题可直接起卦；不写也行，点一张主题牌"}
             </p>
           </div>

@@ -159,10 +159,25 @@ const CATEGORY_KEYWORDS = {
   people: ["朋友", "同事", "家人", "父母", "妈妈", "爸爸", "关系", "人际", "室友", "矛盾", "吵架", "相处", "社交", "闺蜜", "兄弟", "领导", "孩子", "亲戚", "邻居", "误会"],
 };
 
-/** Best-matching category id for a free-text question; "general" when nothing stands out. */
+const HEALTH_WORDS = ["身体", "健康", "生病", "病", "睡眠", "失眠", "减肥", "体检", "手术", "康复", "疼", "痛", "焦虑", "抑郁", "情绪"];
+
+/** Free-text questions that fit none of the six topics are read "as asked". */
+export function customCategory(question) {
+  const health = HEALTH_WORDS.some((word) => (question || "").includes(word));
+  return {
+    id: "custom",
+    label: "心中所问",
+    lens: "按你写下的问题本身来读这一卦。",
+    action: health
+      ? "身体与健康的事，请以医生和检查结果为准；卦意只作为情绪上的陪伴与提醒。"
+      : "把这件事拆成一个今天就能做的小动作，先做起来，答案会在行动中更清楚。",
+  };
+}
+
+/** Best-matching topic id for a free-text question, or null when none clearly fits. */
 export function inferCategory(text) {
   const q = (text || "").toLowerCase();
-  let best = "general";
+  let best = null;
   let bestScore = 0;
   for (const [id, words] of Object.entries(CATEGORY_KEYWORDS)) {
     const score = words.reduce((sum, word) => sum + (q.includes(word) ? word.length : 0), 0);
