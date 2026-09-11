@@ -9,11 +9,11 @@ import {
   nearestCard,
   pickCard,
   releaseCard,
-  renderField,
   resizeField,
   startGather,
   stepField,
 } from "./cardPhysics.js";
+import { buildSprites, cardRect, drawField, loadImage } from "./cardRenderer.js";
 import { isSoundOn, setSoundOn, setWind, sfx, unlockAudio } from "./sound.js";
 
 const WASM_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22-rc.20250304/wasm";
@@ -22,9 +22,19 @@ const asset = (path) => `${import.meta.env.BASE_URL}${path}`;
 const MODEL_URL = asset("models/gesture_recognizer.task");
 const CARD_BACK = asset("assets/card-back.webp");
 const CARD_FACE = asset("assets/card-face.webp");
-const LIGHT_CURSOR = asset("assets/light-cursor.webp");
+const LIGHT_CURSOR = asset("assets/light-cursor-glow.webp");
 const TOPIC_NUMERALS = ["壹", "贰", "叁", "肆", "伍", "陆"];
 const HOLD_MS = { hand: 2000, pointer: 1200 };
+// Phones and low-core machines start in the lighter render mode; anyone can still drop to it
+// automatically if frames run long.
+const LITE_DEVICE = typeof window !== "undefined"
+  && (window.matchMedia?.("(pointer: coarse)").matches || (navigator.hardwareConcurrency ?? 8) <= 4);
+const canvasDpr = (quality) => Math.min(window.devicePixelRatio || 1, quality === "lite" ? 1.5 : 2);
+
+// Warm the image cache early so entering the field never waits on a decode.
+if (typeof window !== "undefined") {
+  [CARD_BACK, CARD_FACE, LIGHT_CURSOR].forEach((src) => loadImage(src).catch(() => {}));
+}
 const HOLD_RING_LENGTH = 2 * Math.PI * 30;
 
 const buzz = (pattern) => { try { navigator.vibrate?.(pattern); } catch { /* optional */ } };
@@ -186,7 +196,8 @@ export function App() {
   const recognitionFrameRef = useRef(null);
   const physicsFrameRef = useRef(null);
   const simRef = useRef(null);
-  const nodesRef = useRef(new Map());
+  const canvasRef = useRef(null);
+  const fallbackRef = useRef(false);
   const stageRef = useRef("calibration");
   const selectedRef = useRef(null);
   const grabSourceRef = useRef(null);
@@ -328,6 +339,8 @@ export function App() {
     if (calibrationDoneRef.current) return;
     calibrationDoneRef.current = true;
     handSeenSinceRef.current = 0;
+    // Choosing touch / mouse frees the camera and the recognizer — on phones they compete with the animation.
+    if (!withHand) { fallbackRef.current = true; stopCamera(); }
     setCameraState(withHand ? "connected" : "fallback");
     setCameraNote(withHand ? "手势连接成功 · 移动指尖选牌，捏住 2 秒确认" : "已切换为鼠标与触控模式");
     setGesture(withHand ? "感应成功 · 即将入场" : "点击主题牌即可继续");
@@ -336,16 +349,14 @@ export function App() {
       setStage("topics");
       setGesture(withHand ? "移动指尖选牌 · 捏住 2 秒确认" : "点击一张主题牌");
     }, withHand ? 520 : 120);
-  }, [later, setGesture]);
+  }, [later, setGesture, stopCamera]);
 
   /* ───────── card field: grab / release / resolve ───────── */
 
   const setHoverCard = useCallback((id) => {
     if (hoverIdRef.current === id) return;
-    nodesRef.current.get(hoverIdRef.current)?.el.classList.remove("is-hover");
     hoverIdRef.current = id;
     if (simRef.current) simRef.current.hoverId = id;
-    nodesRef.current.get(id)?.el.classList.add("is-hover");
     if (id !== null) sfx.hover(cursorRef.current.x);
   }, []);
 
@@ -359,7 +370,6 @@ export function App() {
     grabSourceRef.current = source;
     holdElapsedRef.current = 0;
     setHoverCard(null);
-    nodesRef.current.get(body.id)?.el.classList.add("is-grabbed");
     if (cursorElRef.current) cursorElRef.current.dataset.grabbing = "true";
     buzz(8);
     sfx.pick(x);
@@ -374,7 +384,6 @@ export function App() {
     if (!sim?.grab) return;
     const body = releaseCard(sim);
     if (body) {
-      nodesRef.current.get(body.id)?.el.classList.remove("is-grabbed");
       if (stageRef.current === "field") sfx.release(Math.hypot(body.vx, body.vy), body.x);
     }
     resetHold();
@@ -398,7 +407,6 @@ export function App() {
     selectedRef.current = hexagram;
     setSelectedHex(hexagram);
     startGather(sim, choice.id);
-    nodesRef.current.get(choice.id)?.el.classList.add("is-chosen");
     stageRef.current = "gathering";
     setStage("gathering");
     setGesture("万象归一 · 此卦已定");
@@ -413,8 +421,8 @@ export function App() {
   const finishGather = useCallback(() => {
     if (stageRef.current !== "gathering") return;
     const sim = simRef.current;
-    const node = sim ? nodesRef.current.get(sim.chosenId) : null;
-    setRevealRect(node ? node.tilt.getBoundingClientRect() : null);
+    const body = sim?.bodies.find((item) => item.id === sim.chosenId);
+    setRevealRect(body && canvasRef.current ? cardRect(sim, body, canvasRef.current) : null);
     stopCamera();
     stageRef.current = "result";
     setStage("result");
@@ -515,12 +523,16 @@ export function App() {
 
   const beginRecognitionLoop = useCallback(() => {
     let lastVideoTime = -1;
+    let lastRun = 0;
     const loop = () => {
       if (stageRef.current === "result") return;
       const video = videoRef.current;
       const recognizer = recognizerRef.current;
-      if (video && recognizer && video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+      const now = performance.now();
+      const interval = LITE_DEVICE ? 45 : 0; // ~22 recognitions/s on phones leaves the GPU to the cards
+      if (video && recognizer && video.readyState >= 2 && video.currentTime !== lastVideoTime && now - lastRun >= interval) {
         lastVideoTime = video.currentTime;
+        lastRun = now;
         try {
           const result = recognizer.recognizeForVideo(video, performance.now());
           const landmarks = result.landmarks?.[0];
@@ -558,6 +570,7 @@ export function App() {
         video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false,
       });
+      if (fallbackRef.current) { stream.getTracks().forEach((track) => track.stop()); return; }
       streamRef.current = stream;
       videoRef.current.srcObject = stream;
       await videoRef.current.play();
@@ -575,11 +588,13 @@ export function App() {
           numHands: 1,
         });
       }
+      if (fallbackRef.current) { stopCamera(); return; }
       setCameraState("ready");
       setCameraNote("识别模型已就绪 · 现在请举起一只手");
       setGesture("请将一只手举到摄像头前");
       beginRecognitionLoop();
     } catch {
+      if (fallbackRef.current) return;
       setCameraState("fallback");
       setCameraNote("摄像头未开启 · 鼠标、触控与空格键仍可完整体验");
       stopCamera();
@@ -594,21 +609,30 @@ export function App() {
     if (!inField) return undefined;
     const field = fieldRef.current;
     if (!field) return undefined;
-    const nodes = nodesRef.current;
-    field.querySelectorAll(".mystery-card").forEach((el) => {
-      nodes.set(Number(el.dataset.id), {
-        el,
-        tilt: el.querySelector(".mystery-card__tilt"),
-        shadow: el.querySelector(".mystery-card__shadow"),
-        sheen: el.querySelector(".card-sheen"),
-      });
-    });
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d", { alpha: true, desynchronized: true });
     const sim = createField({ width: field.clientWidth, height: field.clientHeight });
     sim.cursor = cursorRef.current;
-    field.style.setProperty("--card-w", `${sim.cardW}px`);
+    sim.substeps = LITE_DEVICE ? 2 : 3;
+    if (import.meta.env.DEV) window.__fdField = sim; // handy for poking at the physics in dev tools
     simRef.current = sim;
     selectedRef.current = null;
-    renderField(sim, nodes);
+
+    let quality = LITE_DEVICE ? "lite" : "high";
+    let dpr = canvasDpr(quality);
+    let sprites = null;
+    let spriteToken = 0;
+    const sizeCanvas = () => {
+      canvas.width = Math.round(field.clientWidth * dpr);
+      canvas.height = Math.round(field.clientHeight * dpr);
+      const token = ++spriteToken;
+      buildSprites(CARD_BACK, sim.cardW, dpr).then((built) => { if (token === spriteToken) sprites = built; }).catch(() => {});
+    };
+    sizeCanvas();
+
+    // Adaptive quality: if frames keep running long, fall back to the light path once.
+    let slowFor = 0;
+    let lastWind = -1;
 
     let last = performance.now();
     const animate = (now) => {
@@ -644,8 +668,18 @@ export function App() {
         }
       }
       stepField(sim, dt);
-      renderField(sim, nodes);
-      setWind(sim.mode === "field" ? sim.energy : 0);
+      drawField(ctx, sim, sprites, { dpr, dt: Math.min(dt, 0.05), quality });
+      const wind = sim.mode === "field" ? Math.round(sim.energy * 20) / 20 : 0;
+      if (wind !== lastWind) { lastWind = wind; setWind(wind); }
+      if (quality === "high" && sprites) {
+        slowFor = dt > 1 / 42 ? slowFor + dt : Math.max(0, slowFor - dt * 0.5);
+        if (slowFor > 1.2) {
+          quality = "lite";
+          sim.substeps = 2;
+          dpr = canvasDpr("lite");
+          sizeCanvas();
+        }
+      }
       if (sim.mode === "gather" && sim.gatherTime > 1.32) finishGatherRef.current();
       physicsFrameRef.current = requestAnimationFrame(animate);
     };
@@ -653,14 +687,13 @@ export function App() {
 
     const onResize = () => {
       resizeField(sim, field.clientWidth, field.clientHeight);
-      field.style.setProperty("--card-w", `${sim.cardW}px`);
+      sizeCanvas();
     };
     window.addEventListener("resize", onResize);
     return () => {
       setWind(0);
       window.removeEventListener("resize", onResize);
       if (physicsFrameRef.current) cancelAnimationFrame(physicsFrameRef.current);
-      nodes.clear();
       hoverIdRef.current = null;
       simRef.current = null;
     };
@@ -686,6 +719,7 @@ export function App() {
     cursorRef.current.active = false;
     handSeenSinceRef.current = 0;
     calibrationDoneRef.current = false;
+    fallbackRef.current = false;
     focusedTopicRef.current = null;
     topicPinchLatchRef.current = false;
     pinchActiveRef.current = false;
@@ -886,20 +920,7 @@ export function App() {
           onPointerLeave={handlePointerLeave}
         >
           <div className="storm-vortex" aria-hidden="true" />
-          <div className="mystery-deck">
-            {HEXAGRAMS.map((hexagram) => (
-              <div key={hexagram.id} data-id={hexagram.id} className="mystery-card" aria-hidden="true">
-                <span className="mystery-card__shadow" />
-                <span className="mystery-card__tilt">
-                  <span className="mystery-card__face">
-                    <img src={CARD_BACK} alt="" draggable="false" />
-                    <i className="card-sheen" />
-                  </span>
-                  <span className="mystery-card__rim" />
-                </span>
-              </div>
-            ))}
-          </div>
+          <canvas ref={canvasRef} className="card-canvas" aria-hidden="true" />
           <div className="gesture-hud" aria-live="polite"><strong>{gestureText}</strong><span>{cameraState === "connected" ? cameraNote : "拖动拈牌 · 甩出即飞 · 按住一张不动 1.2 秒定卦"}</span></div>
           <div className="field-actions">
             <button type="button" onClick={shuffleField}>挥手乱卦<kbd>空格</kbd></button>

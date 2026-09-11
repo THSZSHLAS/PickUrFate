@@ -358,7 +358,7 @@ export function stepField(field, frameDt) {
     return;
   }
   field.energy += (1 - field.energy) * (1 - Math.exp(-dt * 0.55));
-  const steps = 3;
+  const steps = field.substeps ?? 3;
   const h = dt / steps;
   for (let step = 0; step < steps; step += 1) {
     for (const body of field.bodies) {
@@ -385,33 +385,5 @@ export function stepField(field, frameDt) {
     const speed = Math.hypot(body.vx, body.vy);
     const limit = held ? 5200 : 2600;
     if (speed > limit) { body.vx *= limit / speed; body.vy *= limit / speed; }
-  }
-}
-
-/** Write each body's state into its DOM nodes using compositor-only properties. */
-export function renderField(field, nodes) {
-  const { cardW } = field;
-  const cardH = cardW * CARD_RATIO;
-  for (const body of field.bodies) {
-    const node = nodes.get(body.id);
-    if (!node) continue;
-    const s = depthScale(body.z);
-    node.el.style.transform = `translate3d(${(body.x - cardW / 2).toFixed(2)}px, ${(body.y - cardH / 2).toFixed(2)}px, 0) rotate(${body.a.toFixed(4)}rad) scale(${s.toFixed(4)})`;
-    node.el.style.opacity = body.opacity.toFixed(3);
-    node.tilt.style.transform = `perspective(620px) rotateX(${body.tiltX.toFixed(2)}deg) rotateY(${body.tiltY.toFixed(2)}deg)`;
-    // Light comes from the upper left: rotate the world-space shadow offset into card space.
-    const height = 4 + body.lift * 22 + body.z * 6;
-    const ox = height * 0.45;
-    const oy = height;
-    const cos = Math.cos(-body.a);
-    const sin = Math.sin(-body.a);
-    node.shadow.style.transform = `translate3d(${(ox * cos - oy * sin).toFixed(2)}px, ${(ox * sin + oy * cos).toFixed(2)}px, 0) scale(${(1 + body.lift * 0.07).toFixed(3)})`;
-    node.shadow.style.opacity = (0.5 - body.lift * 0.16).toFixed(3);
-    const glint = body.tiltY * 2.4 - body.tiltX * 1.2 + Math.sin(body.a) * 26;
-    node.sheen.style.transform = `translate3d(${glint.toFixed(1)}%, 0, 0)`;
-    const band = body.z < 0.3 ? "far" : body.z < 0.62 ? "mid" : "near";
-    if (band !== body.band) { body.band = band; node.el.dataset.band = band; }
-    const zIndex = field.grab?.id === body.id || field.chosenId === body.id ? 200 : 10 + Math.round(body.z * 40);
-    if (zIndex !== body.zIndex) { body.zIndex = zIndex; node.el.style.zIndex = String(zIndex); }
   }
 }
