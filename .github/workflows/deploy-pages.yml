@@ -1,3 +1,6 @@
+# Builds the game and publishes it to GitHub Pages on every push to main.
+# One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Works whether the project sits at the repository root or inside a sub-folder.
 name: Deploy to GitHub Pages
 
 on:
@@ -26,6 +29,7 @@ jobs:
           pkg=$(grep -l '"vite"' $(find . -name package.json -not -path '*/node_modules/*') | awk '{ print length, $0 }' | sort -n | head -1 | cut -d' ' -f2-)
           if [ -z "$pkg" ]; then echo "No package.json with vite found" && exit 1; fi
           echo "dir=$(dirname "$pkg")" >> "$GITHUB_OUTPUT"
+          echo "Project folder: $(dirname "$pkg")"
 
       - uses: actions/setup-node@v4
         with:
@@ -41,7 +45,13 @@ jobs:
         run: npx vite build
         working-directory: ${{ steps.locate.outputs.dir }}
         env:
+          # Served from https://<user>.github.io/<repo>/ — asset URLs need the repo prefix.
           BASE_PATH: /${{ github.event.repository.name }}/
+          # Optional AI defaults (Settings → Secrets and variables → Actions). Leave unset to let
+          # visitors enter their own key in the page. A key set here is visible in the site's JS.
+          VITE_AI_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          VITE_AI_BASE_URL: ${{ vars.AI_BASE_URL }}
+          VITE_AI_MODEL: ${{ vars.AI_MODEL }}
 
       - uses: actions/configure-pages@v5
 
