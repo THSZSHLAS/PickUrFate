@@ -882,6 +882,26 @@ button { color: inherit; }
 }
 .question-field input::placeholder { color: rgba(239, 225, 191, 0.38); }
 .question-field:focus-within { border-bottom-color: rgba(246, 214, 140, 0.95); }
+.question-field { margin: 0; }
+.question-field__go {
+  flex: none;
+  border: 1px solid rgba(236, 196, 100, 0.85);
+  border-radius: 999px;
+  padding: 6px 14px;
+  background: linear-gradient(180deg, #f3dc9c, #d9b465);
+  font-family: "Ma Shan Zheng", cursive;
+  font-size: 16px;
+  letter-spacing: 0.08em;
+  color: #1d2b31;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateX(8px) scale(0.92);
+  pointer-events: none;
+  transition: opacity 220ms ease, transform 320ms cubic-bezier(0.3, 1.5, 0.5, 1), box-shadow 220ms ease;
+}
+.question-field.has-text .question-field__go { opacity: 1; transform: none; pointer-events: auto; box-shadow: 0 4px 16px rgba(230, 185, 90, 0.35); }
+.question-field__go:active { transform: scale(0.95); }
+.question-hint { margin: -2px 0 0; font-size: 11px; letter-spacing: 0.08em; color: rgba(239, 225, 191, 0.5); text-align: center; }
 
 /* ───────── six-line altar ───────── */
 .cast-altar {

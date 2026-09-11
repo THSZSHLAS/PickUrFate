@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FilesetResolver, GestureRecognizer } from "@mediapipe/tasks-vision";
-import { CATEGORIES, castLine, hexagramInfo, lineName, readCast } from "./hexagrams.js";
+import { CATEGORIES, castLine, hexagramInfo, inferCategory, lineName, readCast } from "./hexagrams.js";
 import {
   createField,
   createOneEuro,
@@ -859,7 +859,9 @@ export function App() {
     if (next) window.setTimeout(() => sfx.tick(2), 60);
   }, []);
 
-  const activeTopicId = chosenTopicId ?? focusedTopicId ?? hoverTopicId;
+  const guessedTopicId = question.trim() ? inferCategory(question) : null;
+  // While a question is typed, the matching topic card lifts to show where it will be read.
+  const activeTopicId = chosenTopicId ?? focusedTopicId ?? hoverTopicId ?? guessedTopicId;
 
   useEffect(() => {
     if (stage === "topics" && activeTopicId && !chosenTopicId) sfx.slide(cursorRef.current.x);
@@ -930,18 +932,34 @@ export function App() {
               </button>
               <i className="mode-switch__thumb" data-mode={mode} aria-hidden="true" />
             </div>
-            <label className="question-field">
+            <form
+              className={`question-field ${question.trim() ? "has-text" : ""}`}
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!question.trim()) return;
+                event.currentTarget.querySelector("input")?.blur();
+                chooseCategory(inferCategory(question));
+              }}
+            >
               <span>所问</span>
               <input
                 type="text"
                 value={question}
                 maxLength={80}
-                enterKeyHint="done"
+                enterKeyHint="go"
                 onChange={(event) => setQuestion(event.target.value)}
-                onKeyDown={(event) => { if (event.key === "Enter") event.currentTarget.blur(); }}
                 placeholder="写下想问的事（可选），如：要不要换工作？"
+                aria-label="写下想问的事"
               />
-            </label>
+              <button type="submit" className="question-field__go" disabled={!question.trim()} tabIndex={question.trim() ? 0 : -1}>
+                直接起卦
+              </button>
+            </form>
+            <p className="question-hint" aria-live="polite">
+              {question.trim()
+                ? <>将按「{CATEGORIES.find((item) => item.id === guessedTopicId)?.label}」解读 · 回车或点「直接起卦」，也可改点下方主题牌</>
+                : "写下问题可直接起卦；不写也行，点一张主题牌"}
+            </p>
           </div>
           <div className="topic-deck">
             {CATEGORIES.map((item, index) => (

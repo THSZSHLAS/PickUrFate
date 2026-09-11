@@ -148,3 +148,25 @@ export function readCast(values) {
   const relating = moving.length ? resolveHexagram(changedLines(values)) : null;
   return { primary, moving, relating, values };
 }
+
+/* ───────── guess the question's category from free text ───────── */
+
+const CATEGORY_KEYWORDS = {
+  love: ["感情", "恋爱", "喜欢", "表白", "对象", "男朋友", "女朋友", "男友", "女友", "老公", "老婆", "结婚", "婚姻", "分手", "复合", "暗恋", "前任", "相亲", "桃花", "姻缘", "爱情", "约会", "脱单", "心动", "ta"],
+  study: ["考试", "学习", "考研", "高考", "中考", "成绩", "论文", "留学", "读书", "学业", "考公", "考编", "学校", "专业", "保研", "雅思", "托福", "证书", "毕业", "复习", "上岸", "录取", "作业", "课程"],
+  career: ["工作", "跳槽", "辞职", "离职", "老板", "升职", "加薪", "项目", "创业", "事业", "公司", "offer", "面试", "求职", "转行", "岗位", "职场", "晋升", "单位", "裁员", "实习", "上班", "客户"],
+  wealth: ["钱", "财", "投资", "股票", "基金", "理财", "买房", "房子", "贷款", "收入", "副业", "赚", "生意", "彩票", "债", "借钱", "消费", "工资", "存款", "买车", "亏", "盈利"],
+  people: ["朋友", "同事", "家人", "父母", "妈妈", "爸爸", "关系", "人际", "室友", "矛盾", "吵架", "相处", "社交", "闺蜜", "兄弟", "领导", "孩子", "亲戚", "邻居", "误会"],
+};
+
+/** Best-matching category id for a free-text question; "general" when nothing stands out. */
+export function inferCategory(text) {
+  const q = (text || "").toLowerCase();
+  let best = "general";
+  let bestScore = 0;
+  for (const [id, words] of Object.entries(CATEGORY_KEYWORDS)) {
+    const score = words.reduce((sum, word) => sum + (q.includes(word) ? word.length : 0), 0);
+    if (score > bestScore) { best = id; bestScore = score; }
+  }
+  return best;
+}
